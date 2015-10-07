@@ -1,0 +1,144 @@
+---
+layout:     post
+title:      "仿射变换（一）-UIView的平移，旋转，放缩"
+date:       2015-8-12 12:00:00
+author:     "樊凡"
+header-img: "img/post-bg-rwd.jpg"
+tags:
+    - IOS
+    - 仿射变换
+    - 图片操作
+---
+
+<hr />
+
+
+<h1>仿射变换（一）-UIView的平移，旋转，放缩</h1>
+
+<hr />
+
+<h3>1、需求来源：</h3>
+
+<p>现在需要实现一个图片编辑功能，能够对一个图片进行平移，旋转，放缩。因为考虑到图片操作的流畅度，性能问题。这个功能分成两个部分完成：</p>
+
+<ol>
+<li>把缩略图放入UIImageView，对UIImageView进行平移，旋转，放缩，把这些数据记录为一个3*3矩阵（仿射矩阵，具体细节这里不阐述）</li>
+<li>通过画板，把仿射矩阵+原图片相结合，画出在原图上的处理图片。</li>
+</ol>
+
+
+<h3>2、简单的UIImageView手势识别，图片处理。</h3>
+
+<h4>2.1 图片放缩</h4>
+
+<pre><code>- (void)pinchGesture:(UIPinchGestureRecognizer *)recognizer{
+    if ([recognizer state] == UIGestureRecognizerStateBegan){
+       _lastScale = 1.0;
+    }
+    else if([recognizer state] == UIGestureRecognizerStateChanged) {
+        CGFloat scale = 1.0 - (_lastScale - [recognizer scale]);
+        self.imageView.transform = CGAffineTransformScale([self.imageView transform], scale, scale);
+       _lastScale = [recognizer scale];
+    }else{  
+    //对缩放比例进行控制
+    }
+}   
+</code></pre>
+
+<ul>
+<li><code>CGFloat scale = 1.0 - (_lastScale - [recognizer scale]);</code>    scale没有重置的情况下，每次的<code>[recognizer scale]</code>是相对于原始图片的scale，此处我们应该是在上次放缩结果的基础上，继续放缩。</li>
+<li><code>CGAffineTransformScale([self.imageView transform], scale, scale);</code>   在上次的Transform的基础上，做了一次Scale的操作。</li>
+</ul>
+
+
+<h4>2.2 图片旋转</h4>
+
+<pre><code>- (void)rotationGesture:(UIRotationGestureRecognizer *)recognizer{
+    if ([recognizer state] == UIGestureRecognizerStateBegan || [recognizer state] == UIGestureRecognizerStateChanged) {
+        _imageView.transform = CGAffineTransformRotate([_imageView transform], [recognizer rotation]);
+        [recognizer setRotation:0];
+    }else{
+        CGAffineTransform _trans = _imageView.transform;
+    }
+}
+</code></pre>
+
+<ul>
+<li><code>[recognizer setRotation:0];</code>此处便是对recognizer进行了重置。和 <strong>2.1</strong> 里面相对应。同理 <strong>2.1</strong> 也可以使用 <code>[recognizer setScale:0]</code>进行设置</li>
+<li><code>_imageView.transform = CGAffineTransformRotate([_imageView transform], [recognizer rotation]);</code>此处类似scale，在上一次的Transform的基础上，进行旋转</li>
+</ul>
+
+
+<p><strong>至此，图片的放缩和旋转数据，便会存储在 imageView的transfrom里面，我们可以通过</strong> <code>CGAffineTransform _trans = _imageView.transform;</code> <strong> 3 * 3 矩阵。</strong></p>
+
+<p>下面，我们会处理平移，这个看似最简单的功能，但其实，是最繁琐的功能。</p>
+
+<h4>2.3 图片移动</h4>
+
+<h6>方案1</h6>
+
+<pre><code>CGPoint translation = [recognizer translationInView:recognizer.view];
+CGFloat tranX = translation.x;
+CGFloat tranY = translation.y;
+_imageView.center = CGPointMake(_imageView.center.x + tranX, _imageView.center.y + tranY);
+</code></pre>
+
+<p>这个方法可以很简单的实现图片的上下左右移动，看起来似乎很容易，但别忘了我们的初衷，我们希望用<strong> 仿射矩阵 </strong>来存储<strong> 移动数据 </strong>,但我们现在的方案，仅仅是改变UIView的center而促使了图片的移动，和<strong> 仿射矩阵 </strong>没有半毛钱的关系。</p>
+
+<p>那我们该怎么把数据设置到 <strong>仿射矩阵</strong>。</p>
+
+<h6>方案2</h6>
+
+<pre><code>self.imageView.transform = CGAffineTransformTranslate(self.imageView.transform, x, y);
+</code></pre>
+
+<p>第二种方案，用Transform实现图片的移动。初看的时候，移动似乎很完美，没有任何问题，数据刚好也自动写入Transfrom的矩阵，很完美！！！！！</p>
+
+<p>但仔细测试，会发现，如果旋转和缩放之后，这里的移动就显得很奇怪。。为什么呢？</p>
+
+<p>因为，Transform 会改变图片的坐标系，比如，图片顺时针旋转了45°，那么坐标系便整体顺时针旋转45°，所以当你再次运用上面代码的时候，期望的图片往右平移，但实际的结果图片往右下角平移。同理，如果图片放大两倍，你就会发现同样的平移，图片移动的更快（因为，坐标系同比例放大了两倍！）。</p>
+
+<h6>解决方案</h6>
+
+<p>那现在问题来了，该如何解决？初略想一下，两个解决方案</p>
+
+<ul>
+<li>按 <strong>方案1</strong> 情况进行平移，然后研究 3 * 3 仿射矩阵，把数据镶嵌到仿射矩阵里面。</li>
+<li>按 <strong>方案2</strong> 情况，先把recognizer获取的x，y，（此处的x，y是相对于屏幕的），然后按照当前图片坐标系，进行转换，最后按 <code>CGAffineTransformTranslate</code> 进行移动，自动集成到 仿射矩阵里。</li>
+</ul>
+
+
+<p>我在这里用的第二种解决方案，</p>
+
+<p>如图1</p>
+
+<p><img src="file:///Users/zhoufan/Documents/ebook/Mybook/%E4%BB%BF%E5%B0%84%E5%8F%98%E6%8D%A2%EF%BC%88%E4%B8%80%EF%BC%89%E5%9B%BE%E7%89%87%E5%BA%93/%E5%9B%BE1.png" alt="image" /></p>
+
+<p>直接上代码：</p>
+
+<pre><code>   CGAffineTransform _trans = _imageView.transform;
+   currentDegree = atan2(_trans.b, _trans.a);
+   currentScale = sqrt(pow(_trans.a, 2) + pow(_trans.c, 2));
+
+   //三角函数坐标转换
+   CGFloat x;
+   CGFloat y;
+   if(currentDegree &lt; 0){
+       x = translation.x * cos(-currentDegree) - translation.y * sin(-currentDegree);
+       y = translation.x * sin(-currentDegree) + translation.y * cos(-currentDegree);
+   }else{
+       x = translation.x * cos(currentDegree) + translation.y *sin(currentDegree);
+       y = - translation.x * sin(currentDegree) + translation.y * cos(currentDegree);
+   }
+   self.imageView.transform = CGAffineTransformTranslate(self.imageView.transform, x, y);
+</code></pre>
+
+<ul>
+<li><code>currentDegree = atan2(_trans.b, _trans.a);</code> 能获取当前旋转角度</li>
+<li><code>currentScale = sqrt(pow(_trans.a, 2) + pow(_trans.c, 2));</code> 能获取当前的放缩比例</li>
+<li>下面紧接着做 水平X，Y 到图片当前坐标系的转换（此处我没有考虑 scale 的情况，仅仅考虑旋转的坐标转换，scale相对比较简单），高中知识忘得差不多了，做的时候还脑补了一下。</li>
+<li>然后用<code>CGAffineTransformTranslate</code>应用到图片上</li>
+</ul>
+
+
+<h3>总结</h3>

@@ -1,0 +1,257 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>樊凡&#39;s Blog</title>
+    <description>学生党，IOS开发爱好者</description>
+    <link>http://zfha.github.io/</link>
+    <atom:link href="http://zfha.github.io/feed.xml" rel="self" type="application/rss+xml" />
+    <pubDate>Thu, 13 Aug 2015 12:12:03 +0800</pubDate>
+    <lastBuildDate>Thu, 13 Aug 2015 12:12:03 +0800</lastBuildDate>
+    <generator>Jekyll v2.5.3</generator>
+    
+      <item>
+        <title>仿射变换（二）-UIView的平移，旋转，放缩</title>
+        <description>&lt;hr /&gt;
+
+&lt;h1&gt;仿射变换（二）- 图片的仿射矩阵应用&lt;/h1&gt;
+
+&lt;hr /&gt;
+
+&lt;h3&gt;1、回顾&lt;/h3&gt;
+
+&lt;p&gt;上一节中，我们实现一个UIImageView的移动，放缩，旋转，并把这些数据存储在&lt;code&gt;Transform&lt;/code&gt;属性里面，但我们知道，这些数据只是用于当前低画质的图片，而我们需要的是处理原图（高品质的图片）。因此，这一节，我们将实现如何把&lt;code&gt;Tranform&lt;/code&gt;属性应用在原图上面。&lt;/p&gt;
+
+&lt;h3&gt;2、画图&lt;/h3&gt;
+
+&lt;p&gt;很容易，我们便相当了画图的功能，自然而然想到了&lt;code&gt;CoreGraphics&lt;/code&gt;，然后我查了查API，很高兴，&lt;code&gt;CoreGraphics&lt;/code&gt; 也有矩阵应用API，如：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;CGContextTranslateCTM&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CGContextConcatCTM&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;……&lt;/code&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;那直接开干,创建一个类 &lt;code&gt;UIImage+Extensions&lt;/code&gt;&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;- (UIImage *)handleOriginImage:(CGAffineTransform)transform{
+    UIGraphicsBeginImageContext(self.size);
+    CGContextRef context = UIGraphicsGetCurrentContext();
+    CGContextConcatCTM(context, transform);
+
+    //self 即当前的UIImage
+    [self drawInRect:CGRectMake(0, 0, self.size.width, self.size.height)];
+    UIImage *copy = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return copy;
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;感觉对的啊。没有问题，但运行结果和期望的大相径庭，不知道什么原因！！通过慢慢排查，你会发现是 &lt;strong&gt;定点&lt;/strong&gt; 在搞鬼。&lt;/p&gt;
+
+&lt;p&gt;我们都知道的在 UIImageView 进行旋转放缩的时候，我们默认设置的是 UIImageView 的中心点为定点 &lt;strong&gt;anchor Point&lt;/strong&gt;，而你在作图的时候，你会惊奇的发现，画图的定点一直是左上角，所以旋转和放缩之后，得到的结果相差很大。&lt;/p&gt;
+
+&lt;p&gt;那自然而然，想到，该如何改变画布的定点，可惜我找了大半天也没找到。。可能是我太弱？有发现的大神请告诉我！！！那难道，我只能把 UIImageView 操作的时候的定点，设置到左上角？那样体验也太不好了吧。。。&lt;/p&gt;
+
+&lt;p&gt;后来想到，记得上一节，在图片移动的时候，我们用过三角函数，进行变换，那当然我们这儿也可以。坐标系东西都可以用数学知识进行改变的。&lt;/p&gt;
+
+&lt;h3&gt;3、解决方案&lt;/h3&gt;
+
+&lt;p&gt;图示：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;http://&quot; alt=&quot;image&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;我可以先把图片移动到特定的位置，让其按左上角旋转之后的结果，和在原始位置按中心点旋转的结果一样。
+（为什么不在图片旋转之后再移动位置呢？如上节说过，图片矩阵旋转，会改变坐标系，那时候的移动得相对于那时的坐标系，操作起来更加繁琐！因此，我们在最初进行坐标移动矫正，然后应用矩阵）&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;- (UIImage *)handleOriginImage:(CGAffineTransform)transform scale:(CGFloat)scale{
+    UIGraphicsBeginImageContext(self.size);
+    CGContextRef context = UIGraphicsGetCurrentContext();
+
+    //先计算出操作图的旋转角度和放缩比例
+    CGFloat editDegree = atan2(transform.b, transform.a);
+    CGFloat editScale = sqrt(pow(transform.a, 2) + pow(transform.c, 2));
+
+    //通过计算，在操作之前，修正左上角的位置
+    CGFloat diameter = sqrt(pow(self.size.width, 2)+pow(self.size.height, 2));
+    CGFloat originDegree = asin(self.size.height / diameter);
+    CGFloat currentDegree = originDegree + editDegree;
+
+    CGFloat newX = self.size.width / 2 - cos(currentDegree) * diameter * editScale / 2;
+    CGFloat newY = self.size.height / 2 - sin(currentDegree) * diameter * editScale/ 2;
+
+    //水平的操作，在原图上进行修正，tx，ty分别代表 X,Y轴移动的距离
+    transform.tx = transform.tx * scale;
+    transform.ty = transform.ty * scale;
+
+    //先修正左上角的位置
+    CGContextTranslateCTM(context, newX, newY);
+
+    //对3*3矩阵进行渲染
+    CGContextConcatCTM(context, transform);
+
+    [self drawInRect:CGRectMake(0, 0, self.size.width, self.size.height)];
+    UIImage *copy = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return copy;
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;代码很清楚，一点需要解释：  &lt;strong&gt;//水平的操作，在原图上进行修正&lt;/strong&gt; 这部分的代码，因为在UIImageView上面做的操作，比如当时图片是 100 * 100， 原图是1000 * 1000，所以当时的移动距离，在原图上面应该放大10倍，所以这里主要做这个处理。&lt;/p&gt;
+</description>
+        <pubDate>Wed, 12 Aug 2015 20:30:00 +0800</pubDate>
+        <link>http://zfha.github.io/2015/08/12/IOS-%E5%9B%BE%E7%89%87%E4%BB%BF%E5%B0%84%E5%8F%98%E5%8C%96%EF%BC%88%E4%B8%80%EF%BC%89/</link>
+        <guid isPermaLink="true">http://zfha.github.io/2015/08/12/IOS-%E5%9B%BE%E7%89%87%E4%BB%BF%E5%B0%84%E5%8F%98%E5%8C%96%EF%BC%88%E4%B8%80%EF%BC%89/</guid>
+        
+        <category>IOS</category>
+        
+        <category>仿射变换</category>
+        
+        <category>图片操作</category>
+        
+        
+      </item>
+    
+      <item>
+        <title>仿射变换（一）-UIView的平移，旋转，放缩</title>
+        <description>&lt;hr /&gt;
+
+&lt;h1&gt;仿射变换（一）-UIView的平移，旋转，放缩&lt;/h1&gt;
+
+&lt;hr /&gt;
+
+&lt;h3&gt;1、需求来源：&lt;/h3&gt;
+
+&lt;p&gt;现在需要实现一个图片编辑功能，能够对一个图片进行平移，旋转，放缩。因为考虑到图片操作的流畅度，性能问题。这个功能分成两个部分完成：&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;把缩略图放入UIImageView，对UIImageView进行平移，旋转，放缩，把这些数据记录为一个3*3矩阵（仿射矩阵，具体细节这里不阐述）&lt;/li&gt;
+&lt;li&gt;通过画板，把仿射矩阵+原图片相结合，画出在原图上的处理图片。&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h3&gt;2、简单的UIImageView手势识别，图片处理。&lt;/h3&gt;
+
+&lt;h4&gt;2.1 图片放缩&lt;/h4&gt;
+
+&lt;pre&gt;&lt;code&gt;- (void)pinchGesture:(UIPinchGestureRecognizer *)recognizer{
+    if ([recognizer state] == UIGestureRecognizerStateBegan){
+       _lastScale = 1.0;
+    }
+    else if([recognizer state] == UIGestureRecognizerStateChanged) {
+        CGFloat scale = 1.0 - (_lastScale - [recognizer scale]);
+        self.imageView.transform = CGAffineTransformScale([self.imageView transform], scale, scale);
+       _lastScale = [recognizer scale];
+    }else{  
+    //对缩放比例进行控制
+    }
+}   
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;CGFloat scale = 1.0 - (_lastScale - [recognizer scale]);&lt;/code&gt;    scale没有重置的情况下，每次的&lt;code&gt;[recognizer scale]&lt;/code&gt;是相对于原始图片的scale，此处我们应该是在上次放缩结果的基础上，继续放缩。&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CGAffineTransformScale([self.imageView transform], scale, scale);&lt;/code&gt;   在上次的Transform的基础上，做了一次Scale的操作。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h4&gt;2.2 图片旋转&lt;/h4&gt;
+
+&lt;pre&gt;&lt;code&gt;- (void)rotationGesture:(UIRotationGestureRecognizer *)recognizer{
+    if ([recognizer state] == UIGestureRecognizerStateBegan || [recognizer state] == UIGestureRecognizerStateChanged) {
+        _imageView.transform = CGAffineTransformRotate([_imageView transform], [recognizer rotation]);
+        [recognizer setRotation:0];
+    }else{
+        CGAffineTransform _trans = _imageView.transform;
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;[recognizer setRotation:0];&lt;/code&gt;此处便是对recognizer进行了重置。和 &lt;strong&gt;2.1&lt;/strong&gt; 里面相对应。同理 &lt;strong&gt;2.1&lt;/strong&gt; 也可以使用 &lt;code&gt;[recognizer setScale:0]&lt;/code&gt;进行设置&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;_imageView.transform = CGAffineTransformRotate([_imageView transform], [recognizer rotation]);&lt;/code&gt;此处类似scale，在上一次的Transform的基础上，进行旋转&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;strong&gt;至此，图片的放缩和旋转数据，便会存储在 imageView的transfrom里面，我们可以通过&lt;/strong&gt; &lt;code&gt;CGAffineTransform _trans = _imageView.transform;&lt;/code&gt; &lt;strong&gt; 3 * 3 矩阵。&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;下面，我们会处理平移，这个看似最简单的功能，但其实，是最繁琐的功能。&lt;/p&gt;
+
+&lt;h4&gt;2.3 图片移动&lt;/h4&gt;
+
+&lt;h6&gt;方案1&lt;/h6&gt;
+
+&lt;pre&gt;&lt;code&gt;CGPoint translation = [recognizer translationInView:recognizer.view];
+CGFloat tranX = translation.x;
+CGFloat tranY = translation.y;
+_imageView.center = CGPointMake(_imageView.center.x + tranX, _imageView.center.y + tranY);
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个方法可以很简单的实现图片的上下左右移动，看起来似乎很容易，但别忘了我们的初衷，我们希望用&lt;strong&gt; 仿射矩阵 &lt;/strong&gt;来存储&lt;strong&gt; 移动数据 &lt;/strong&gt;,但我们现在的方案，仅仅是改变UIView的center而促使了图片的移动，和&lt;strong&gt; 仿射矩阵 &lt;/strong&gt;没有半毛钱的关系。&lt;/p&gt;
+
+&lt;p&gt;那我们该怎么把数据设置到 &lt;strong&gt;仿射矩阵&lt;/strong&gt;。&lt;/p&gt;
+
+&lt;h6&gt;方案2&lt;/h6&gt;
+
+&lt;pre&gt;&lt;code&gt;self.imageView.transform = CGAffineTransformTranslate(self.imageView.transform, x, y);
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;第二种方案，用Transform实现图片的移动。初看的时候，移动似乎很完美，没有任何问题，数据刚好也自动写入Transfrom的矩阵，很完美！！！！！&lt;/p&gt;
+
+&lt;p&gt;但仔细测试，会发现，如果旋转和缩放之后，这里的移动就显得很奇怪。。为什么呢？&lt;/p&gt;
+
+&lt;p&gt;因为，Transform 会改变图片的坐标系，比如，图片顺时针旋转了45°，那么坐标系便整体顺时针旋转45°，所以当你再次运用上面代码的时候，期望的图片往右平移，但实际的结果图片往右下角平移。同理，如果图片放大两倍，你就会发现同样的平移，图片移动的更快（因为，坐标系同比例放大了两倍！）。&lt;/p&gt;
+
+&lt;h6&gt;解决方案&lt;/h6&gt;
+
+&lt;p&gt;那现在问题来了，该如何解决？初略想一下，两个解决方案&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;按 &lt;strong&gt;方案1&lt;/strong&gt; 情况进行平移，然后研究 3 * 3 仿射矩阵，把数据镶嵌到仿射矩阵里面。&lt;/li&gt;
+&lt;li&gt;按 &lt;strong&gt;方案2&lt;/strong&gt; 情况，先把recognizer获取的x，y，（此处的x，y是相对于屏幕的），然后按照当前图片坐标系，进行转换，最后按 &lt;code&gt;CGAffineTransformTranslate&lt;/code&gt; 进行移动，自动集成到 仿射矩阵里。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;我在这里用的第二种解决方案，&lt;/p&gt;
+
+&lt;p&gt;如图1&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;file:///Users/zhoufan/Documents/ebook/Mybook/%E4%BB%BF%E5%B0%84%E5%8F%98%E6%8D%A2%EF%BC%88%E4%B8%80%EF%BC%89%E5%9B%BE%E7%89%87%E5%BA%93/%E5%9B%BE1.png&quot; alt=&quot;image&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;直接上代码：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;   CGAffineTransform _trans = _imageView.transform;
+   currentDegree = atan2(_trans.b, _trans.a);
+   currentScale = sqrt(pow(_trans.a, 2) + pow(_trans.c, 2));
+
+   //三角函数坐标转换
+   CGFloat x;
+   CGFloat y;
+   if(currentDegree &amp;lt; 0){
+       x = translation.x * cos(-currentDegree) - translation.y * sin(-currentDegree);
+       y = translation.x * sin(-currentDegree) + translation.y * cos(-currentDegree);
+   }else{
+       x = translation.x * cos(currentDegree) + translation.y *sin(currentDegree);
+       y = - translation.x * sin(currentDegree) + translation.y * cos(currentDegree);
+   }
+   self.imageView.transform = CGAffineTransformTranslate(self.imageView.transform, x, y);
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;currentDegree = atan2(_trans.b, _trans.a);&lt;/code&gt; 能获取当前旋转角度&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;currentScale = sqrt(pow(_trans.a, 2) + pow(_trans.c, 2));&lt;/code&gt; 能获取当前的放缩比例&lt;/li&gt;
+&lt;li&gt;下面紧接着做 水平X，Y 到图片当前坐标系的转换（此处我没有考虑 scale 的情况，仅仅考虑旋转的坐标转换，scale相对比较简单），高中知识忘得差不多了，做的时候还脑补了一下。&lt;/li&gt;
+&lt;li&gt;然后用&lt;code&gt;CGAffineTransformTranslate&lt;/code&gt;应用到图片上&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3&gt;总结&lt;/h3&gt;
+</description>
+        <pubDate>Wed, 12 Aug 2015 20:00:00 +0800</pubDate>
+        <link>http://zfha.github.io/2015/08/12/IOS-%E5%9B%BE%E7%89%87%E4%BB%BF%E5%B0%84%E5%8F%98%E5%8C%96%EF%BC%88%E4%BA%8C%EF%BC%89/</link>
+        <guid isPermaLink="true">http://zfha.github.io/2015/08/12/IOS-%E5%9B%BE%E7%89%87%E4%BB%BF%E5%B0%84%E5%8F%98%E5%8C%96%EF%BC%88%E4%BA%8C%EF%BC%89/</guid>
+        
+        <category>IOS</category>
+        
+        <category>仿射变换</category>
+        
+        <category>图片操作</category>
+        
+        
+      </item>
+    
+  </channel>
+</rss>

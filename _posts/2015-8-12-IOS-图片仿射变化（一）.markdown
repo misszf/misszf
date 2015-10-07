@@ -1,0 +1,99 @@
+---
+layout:     post
+title:      "仿射变换（二）-UIView的平移，旋转，放缩"
+date:       2015-8-12 12:30:00
+author:     "樊凡"
+header-img: "img/post-bg-rwd.jpg"
+tags:
+    - IOS
+    - 仿射变换
+    - 图片操作
+---
+
+<hr />
+
+<h1>仿射变换（二）- 图片的仿射矩阵应用</h1>
+
+<hr />
+
+<h3>1、回顾</h3>
+
+<p>上一节中，我们实现一个UIImageView的移动，放缩，旋转，并把这些数据存储在<code>Transform</code>属性里面，但我们知道，这些数据只是用于当前低画质的图片，而我们需要的是处理原图（高品质的图片）。因此，这一节，我们将实现如何把<code>Tranform</code>属性应用在原图上面。</p>
+
+<h3>2、画图</h3>
+
+<p>很容易，我们便相当了画图的功能，自然而然想到了<code>CoreGraphics</code>，然后我查了查API，很高兴，<code>CoreGraphics</code> 也有矩阵应用API，如：</p>
+
+<ul>
+<li><code>CGContextTranslateCTM</code></li>
+<li><code>CGContextConcatCTM</code></li>
+<li><code>……</code></li>
+</ul>
+
+
+<p>那直接开干,创建一个类 <code>UIImage+Extensions</code></p>
+
+<pre><code>- (UIImage *)handleOriginImage:(CGAffineTransform)transform{
+    UIGraphicsBeginImageContext(self.size);
+    CGContextRef context = UIGraphicsGetCurrentContext();
+    CGContextConcatCTM(context, transform);
+
+    //self 即当前的UIImage
+    [self drawInRect:CGRectMake(0, 0, self.size.width, self.size.height)];
+    UIImage *copy = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return copy;
+}
+</code></pre>
+
+<p>感觉对的啊。没有问题，但运行结果和期望的大相径庭，不知道什么原因！！通过慢慢排查，你会发现是 <strong>定点</strong> 在搞鬼。</p>
+
+<p>我们都知道的在 UIImageView 进行旋转放缩的时候，我们默认设置的是 UIImageView 的中心点为定点 <strong>anchor Point</strong>，而你在作图的时候，你会惊奇的发现，画图的定点一直是左上角，所以旋转和放缩之后，得到的结果相差很大。</p>
+
+<p>那自然而然，想到，该如何改变画布的定点，可惜我找了大半天也没找到。。可能是我太弱？有发现的大神请告诉我！！！那难道，我只能把 UIImageView 操作的时候的定点，设置到左上角？那样体验也太不好了吧。。。</p>
+
+<p>后来想到，记得上一节，在图片移动的时候，我们用过三角函数，进行变换，那当然我们这儿也可以。坐标系东西都可以用数学知识进行改变的。</p>
+
+<h3>3、解决方案</h3>
+
+<p>图示：</p>
+
+<p><img src="http://" alt="image" /></p>
+
+<p>我可以先把图片移动到特定的位置，让其按左上角旋转之后的结果，和在原始位置按中心点旋转的结果一样。
+（为什么不在图片旋转之后再移动位置呢？如上节说过，图片矩阵旋转，会改变坐标系，那时候的移动得相对于那时的坐标系，操作起来更加繁琐！因此，我们在最初进行坐标移动矫正，然后应用矩阵）</p>
+
+<pre><code>- (UIImage *)handleOriginImage:(CGAffineTransform)transform scale:(CGFloat)scale{
+    UIGraphicsBeginImageContext(self.size);
+    CGContextRef context = UIGraphicsGetCurrentContext();
+
+    //先计算出操作图的旋转角度和放缩比例
+    CGFloat editDegree = atan2(transform.b, transform.a);
+    CGFloat editScale = sqrt(pow(transform.a, 2) + pow(transform.c, 2));
+
+    //通过计算，在操作之前，修正左上角的位置
+    CGFloat diameter = sqrt(pow(self.size.width, 2)+pow(self.size.height, 2));
+    CGFloat originDegree = asin(self.size.height / diameter);
+    CGFloat currentDegree = originDegree + editDegree;
+
+    CGFloat newX = self.size.width / 2 - cos(currentDegree) * diameter * editScale / 2;
+    CGFloat newY = self.size.height / 2 - sin(currentDegree) * diameter * editScale/ 2;
+
+    //水平的操作，在原图上进行修正，tx，ty分别代表 X,Y轴移动的距离
+    transform.tx = transform.tx * scale;
+    transform.ty = transform.ty * scale;
+
+    //先修正左上角的位置
+    CGContextTranslateCTM(context, newX, newY);
+
+    //对3*3矩阵进行渲染
+    CGContextConcatCTM(context, transform);
+
+    [self drawInRect:CGRectMake(0, 0, self.size.width, self.size.height)];
+    UIImage *copy = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return copy;
+}
+</code></pre>
+
+<p>代码很清楚，一点需要解释：  <strong>//水平的操作，在原图上进行修正</strong> 这部分的代码，因为在UIImageView上面做的操作，比如当时图片是 100 * 100， 原图是1000 * 1000，所以当时的移动距离，在原图上面应该放大10倍，所以这里主要做这个处理。</p>
