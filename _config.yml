@@ -1,15 +1,15 @@
 # Site settings
 title: 樊凡's Blog 
 header-img: img/home-bg.jpg
-email: 545227212@qq.com
+email: 792924802@qq.com
 description: "学生党，IOS开发爱好者"
 baseurl: ""
-url: "http://zfha.github.io"
-twitter_username: zfha
-github_username:  zfha
-facebook_username:  zfha
-weibo_username: zfha
-zhihu_username: zfha
+url: "http://misszf.github.io/misszf/"
+twitter_username: misszf
+github_username:  misszf
+facebook_username:  misszf
+weibo_username: misszf
+zhihu_username: misszf
 
 # Build settings
 markdown: kramdown 
